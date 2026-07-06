@@ -1,0 +1,28 @@
+# Python cache/runtime files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local environments
+.venv/
+venv/
+env/
+
+# Temporary Unity/UniVRM extraction workspace
+.tmp_univrm*/
+
+# Generated recording frame dumps
+demo_assets/*_frames/
+demo_assets/codex_prompt_demo_frames/
+demo_assets/codex_prompt_demo_voiced_frames/
+demo_assets/vrma_effect_frames/
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets
+.env
+*.local

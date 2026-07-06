@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VRM Pose Reference Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: #202124;
+      background: #eef0f3;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    #app {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    aside {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 18px;
+      background: #f8f9fb;
+      border-right: 1px solid #d4d8dd;
+      overflow: auto;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    p {
+      margin: 0;
+      color: #5f6368;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .control {
+      display: grid;
+      gap: 8px;
+    }
+
+    label {
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    select,
+    input[type="file"],
+    button {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid #c5cad1;
+      border-radius: 6px;
+      background: #fff;
+      color: #202124;
+      font: inherit;
+    }
+
+    select,
+    input[type="file"] {
+      padding: 7px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    button:hover {
+      background: #f0f3f7;
+    }
+
+    .check {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 8px;
+      align-items: start;
+      padding: 10px;
+      border: 1px solid #d4d8dd;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .check input {
+      margin-top: 2px;
+    }
+
+    .check span {
+      display: block;
+      color: #5f6368;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 400;
+    }
+
+    #status,
+    #jsonPreview {
+      min-height: 88px;
+      padding: 10px;
+      color: #1f2933;
+      background: #fff;
+      border: 1px solid #d4d8dd;
+      border-radius: 6px;
+      font-family: Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+
+    #jsonPreview {
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .pose-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .pose-card {
+      display: grid;
+      grid-template-rows: 88px auto;
+      gap: 6px;
+      min-width: 0;
+      padding: 6px;
+      border: 1px solid #d4d8dd;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .pose-card:hover {
+      background: #f0f3f7;
+    }
+
+    .pose-card img {
+      width: 100%;
+      height: 88px;
+      object-fit: contain;
+      background: #fff;
+    }
+
+    .pose-card span {
+      overflow: hidden;
+      color: #202124;
+      font-size: 12px;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    main {
+      position: relative;
+      min-width: 0;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    @media (max-width: 760px) {
+      #app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr;
+      }
+
+      aside {
+        max-height: 42vh;
+        border-right: 0;
+        border-bottom: 1px solid #d4d8dd;
+      }
+    }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.min.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <aside>
+      <div>
+        <h1>VRM Pose Reference</h1>
+        <p>載入 charactor.vrm，選擇本機或 Drift Poses 的 pose JSON 後套用姿態。VRM0 quaternion 修正會依 pose 來源版本自動判斷。</p>
+      </div>
+
+      <div class="control">
+        <label for="vrmFile">VRM 模型</label>
+        <input id="vrmFile" type="file" accept=".vrm,model/gltf-binary,application/octet-stream">
+        <button id="loadDefaultVrm" type="button">載入內建 charactor.vrm</button>
+      </div>
+
+      <div class="control">
+        <label for="remoteLanguage">Drift Poses 清單</label>
+        <select id="remoteLanguage">
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+        </select>
+        <button id="loadRemotePoses" type="button">讀取線上姿勢清單</button>
+      </div>
+
+      <div id="remotePoseGrid" class="pose-grid"></div>
+
+      <div class="control">
+        <label for="remotePoseSelect">選取線上姿勢</label>
+        <select id="remotePoseSelect"></select>
+        <button id="applyRemotePose" type="button">套用選取姿勢</button>
+      </div>
+
+      <div class="control">
+        <label for="jsonPreview">JSON 預覽</label>
+        <pre id="jsonPreview">(尚未載入線上 JSON)</pre>
+      </div>
+
+      <div class="control">
+        <label for="poseFile">Pose JSON</label>
+        <input id="poseFile" type="file" accept=".json,application/json">
+      </div>
+
+      <button id="loadDefaultPose" type="button">套用內建 pose.json</button>
+      <button id="resetPose" type="button">重設姿態</button>
+
+      <div class="control">
+        <label for="applyMode">套用方式</label>
+        <select id="applyMode">
+          <option value="normalized">setNormalizedPose 優先</option>
+          <option value="manual">手動 bone.quaternion</option>
+        </select>
+      </div>
+
+      <label class="check">
+        <input id="convertVrm0" type="checkbox" checked>
+        <strong>VRM0 quaternion 轉換<span>參考 ChatVRM：pose 來源版本為 0 時，rotation values 的 x、z 分量反號。</span></strong>
+      </label>
+
+      <label class="check">
+        <input id="skipHeadNeck" type="checkbox">
+        <strong>略過 head / neck<span>若要保留滑鼠看向或頭部控制，可開啟這個選項。</span></strong>
+      </label>
+
+      <pre id="status">準備載入 charactor.vrm...</pre>
+    </aside>
+    <main>
+      <canvas id="viewport"></canvas>
+    </main>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+    const canvas = document.getElementById('viewport');
+    const statusEl = document.getElementById('status');
+    const vrmFileEl = document.getElementById('vrmFile');
+    const loadDefaultVrmEl = document.getElementById('loadDefaultVrm');
+    const poseFileEl = document.getElementById('poseFile');
+    const remoteLanguageEl = document.getElementById('remoteLanguage');
+    const loadRemotePosesEl = document.getElementById('loadRemotePoses');
+    const remotePoseGridEl = document.getElementById('remotePoseGrid');
+    const remotePoseSelectEl = document.getElementById('remotePoseSelect');
+    const applyRemotePoseEl = document.getElementById('applyRemotePose');
+    const jsonPreviewEl = document.getElementById('jsonPreview');
+    const convertVrm0El = document.getElementById('convertVrm0');
+    const skipHeadNeckEl = document.getElementById('skipHeadNeck');
+    const loadDefaultPoseEl = document.getElementById('loadDefaultPose');
+    const resetPoseEl = document.getElementById('resetPose');
+    const applyModeEl = document.getElementById('applyMode');
+
+    const REMOTE_BASE_URL = 'https://vrm-pose-filer.pages.dev';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xeef0f3);
+
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+    camera.position.set(0, 1.35, 4.2);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.35, 0);
+    controls.enableDamping = true;
+    controls.update();
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8b929c, 3.0));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    keyLight.position.set(2.5, 4.0, 3.0);
+    scene.add(keyLight);
+
+    const grid = new THREE.GridHelper(3.2, 16, 0xc8ced6, 0xdce1e7);
+    scene.add(grid);
+
+    let currentVrm = null;
+    let currentVrmLabel = '';
+    let currentVrmObjectUrl = null;
+    let lastPoseData = null;
+    let lastPoseLabel = '';
+    let remotePoseItems = [];
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function setJsonPreview(data) {
+      const text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      jsonPreviewEl.textContent = text.length > 12000 ? `${text.slice(0, 12000)}\n...` : text;
+    }
+
+    function resizeRenderer() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      renderer.setSize(rect.width, rect.height, false);
+      camera.aspect = rect.width / Math.max(rect.height, 1);
+      camera.updateProjectionMatrix();
+    }
+
+    function getPoseBones(poseData) {
+      if (poseData?.data && typeof poseData.data === 'object') return poseData.data;
+      if (poseData?.pose && typeof poseData.pose === 'object') return poseData.pose;
+      return poseData;
+    }
+
+    function getPoseSourceVersion(poseData) {
+      return poseData?.vrmVersion ?? poseData?.vrmMetaVersion ?? poseData?.metaVersion ?? null;
+    }
+
+    function normalizedBoneName(name) {
+      return name === 'leftToes' ? 'leftToes'
+        : name === 'rightToes' ? 'rightToes'
+        : name;
+    }
+
+    function getBone(name) {
+      const humanBoneName = normalizedBoneName(name);
+      return currentVrm?.humanoid?.getNormalizedBoneNode?.(humanBoneName)
+        || currentVrm?.humanoid?.getRawBoneNode?.(humanBoneName)
+        || null;
+    }
+
+    function convertQuaternionForVrm0(arr, poseData) {
+      const q = arr.map(Number);
+      const sourceVersion = getPoseSourceVersion(poseData);
+      const shouldConvert = convertVrm0El.checked
+        && String(sourceVersion) === '0';
+
+      if (shouldConvert) {
+        q[0] = -q[0];
+        q[2] = -q[2];
+      }
+
+      return q;
+    }
+
+    function buildNormalizedPose(bones, poseData) {
+      const pose = {};
+      let skipped = 0;
+
+      for (const [boneName, value] of Object.entries(bones)) {
+        if (skipHeadNeckEl.checked && ['head', 'neck'].includes(boneName.toLowerCase())) {
+          skipped += 1;
+          continue;
+        }
+
+        const rotation = value?.rotation;
+        if (!Array.isArray(rotation) || rotation.length !== 4) continue;
+
+        const [x, y, z, w] = convertQuaternionForVrm0(rotation, poseData);
+        pose[normalizedBoneName(boneName)] = {
+          rotation: [x, y, z, w],
+        };
+
+        if (Array.isArray(value?.position) && value.position.length === 3) {
+          pose[normalizedBoneName(boneName)].position = value.position.map(Number);
+        }
+      }
+
+      return { pose, skipped };
+    }
+
+    function applyPoseWithNormalizedApi(bones, poseData) {
+      const humanoid = currentVrm?.humanoid;
+      if (!humanoid?.setNormalizedPose) return null;
+
+      const { pose, skipped } = buildNormalizedPose(bones, poseData);
+      humanoid.setNormalizedPose(pose);
+      humanoid.update?.();
+
+      return {
+        applied: Object.keys(pose).length,
+        missing: 0,
+        skipped,
+        missingNames: [],
+        mode: 'setNormalizedPose',
+      };
+    }
+
+    function applyPoseManually(bones, poseData) {
+      let applied = 0;
+      let missing = 0;
+      let skipped = 0;
+      const missingNames = [];
+
+      for (const [boneName, value] of Object.entries(bones)) {
+        if (skipHeadNeckEl.checked && ['head', 'neck'].includes(boneName.toLowerCase())) {
+          skipped += 1;
+          continue;
+        }
+
+        const rotation = value?.rotation;
+        if (!Array.isArray(rotation) || rotation.length !== 4) continue;
+
+        const bone = getBone(boneName);
+        if (!bone) {
+          missing += 1;
+          missingNames.push(boneName);
+          continue;
+        }
+
+        const [x, y, z, w] = convertQuaternionForVrm0(rotation, poseData);
+        bone.quaternion.set(x, y, z, w).normalize();
+        applied += 1;
+      }
+
+      currentVrm.humanoid?.update?.();
+
+      return {
+        applied,
+        missing,
+        skipped,
+        missingNames,
+        mode: 'manual quaternion',
+      };
+    }
+
+    function resetCurrentPose() {
+      const humanoid = currentVrm?.humanoid;
+      if (!humanoid) return;
+
+      if (humanoid.resetNormalizedPose) humanoid.resetNormalizedPose();
+      else if (humanoid.resetRawPose) humanoid.resetRawPose();
+      else humanoid.resetPose?.();
+      humanoid.update?.();
+    }
+
+    function applyPoseData(poseData) {
+      if (!currentVrm) return;
+
+      const bones = getPoseBones(poseData);
+      if (!bones || typeof bones !== 'object') {
+        throw new Error('Pose JSON does not contain a bone map.');
+      }
+
+      resetCurrentPose();
+
+      let result = null;
+      if (applyModeEl.value === 'normalized') {
+        result = applyPoseWithNormalizedApi(bones, poseData);
+      }
+      if (!result) {
+        result = applyPoseManually(bones, poseData);
+      }
+
+      lastPoseData = poseData;
+
+      const sourceVersion = getPoseSourceVersion(poseData);
+      const convertLabel = convertVrm0El.checked && String(sourceVersion) === '0' ? 'ON' : 'OFF';
+      setStatus([
+        `pose: ${lastPoseLabel || poseData?.name || '(unnamed)'}`,
+        `apply mode: ${result.mode}`,
+        `model: ${currentVrmLabel || '(none)'}`,
+        `pose sourceVersion: ${sourceVersion ?? '(none)'}`,
+        `model metaVersion: ${currentVrm?.meta?.metaVersion ?? '(none)'}`,
+        `VRM0 x/z flip: ${convertLabel}`,
+        `applied: ${result.applied}, skipped: ${result.skipped}, missing: ${result.missing}`,
+        result.missingNames.length ? `missing: ${result.missingNames.slice(0, 10).join(', ')}` : ''
+      ].filter(Boolean).join('\n'));
+    }
+
+    async function loadJsonFromUrl(url) {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to load ${url}: ${response.status}`);
+      return response.json();
+    }
+
+    async function loadPoseFile(file) {
+      const text = await file.text();
+      return JSON.parse(text);
+    }
+
+    function resolveRemoteUrl(path) {
+      return new URL(path, REMOTE_BASE_URL).toString();
+    }
+
+    function flattenRemotePoseList(listData) {
+      return Object.values(listData)
+        .sort((a, b) => Number(a.maxId) - Number(b.maxId))
+        .flatMap(group => group.items || [])
+        .map((item, index) => ({
+          id: item.poseUrl || String(index),
+          name: item.name || `(pose ${index + 1})`,
+          imageUrl: resolveRemoteUrl(item.imageUrl),
+          poseUrl: resolveRemoteUrl(item.poseUrl),
+        }));
+    }
+
+    function renderRemotePoseList(items) {
+      remotePoseItems = items;
+      remotePoseGridEl.replaceChildren();
+      remotePoseSelectEl.replaceChildren();
+
+      for (const [index, item] of items.entries()) {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = item.name;
+        remotePoseSelectEl.append(option);
+
+        const button = document.createElement('button');
+        button.className = 'pose-card';
+        button.type = 'button';
+        button.dataset.poseIndex = String(index);
+
+        const img = document.createElement('img');
+        img.src = item.imageUrl;
+        img.alt = item.name;
+        img.loading = 'lazy';
+
+        const label = document.createElement('span');
+        label.textContent = item.name;
+
+        button.append(img, label);
+        remotePoseGridEl.append(button);
+      }
+    }
+
+    async function applyRemotePoseItem(item) {
+      setStatus(`讀取線上姿勢...\n${item.name}`);
+      const poseData = await loadJsonFromUrl(item.poseUrl);
+      setJsonPreview(poseData);
+      lastPoseLabel = item.name;
+      applyPoseData(poseData);
+    }
+
+    async function loadRemotePoseList() {
+      const file = remoteLanguageEl.value === 'ja' ? 'postlist.json' : 'postlist_en.json';
+      setStatus(`讀取線上姿勢清單...\n${REMOTE_BASE_URL}/${file}`);
+      const listData = await loadJsonFromUrl(`${REMOTE_BASE_URL}/${file}`);
+      const items = flattenRemotePoseList(listData);
+      renderRemotePoseList(items);
+      setJsonPreview(listData);
+      setStatus(`已讀取 Drift Poses\nitems: ${items.length}\n點選縮圖即可套用姿態。`);
+    }
+
+    function disposeCurrentVrm() {
+      if (!currentVrm) return;
+
+      scene.remove(currentVrm.scene);
+      currentVrm.scene.traverse(object => {
+        if (object.geometry) object.geometry.dispose?.();
+        if (object.material) {
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          for (const material of materials) material.dispose?.();
+        }
+      });
+      currentVrm = null;
+    }
+
+    async function loadVrm(url = 'charactor.vrm', label = 'charactor.vrm') {
+      const loader = new GLTFLoader();
+      loader.register(parser => new VRMLoaderPlugin(parser));
+
+      setStatus(`載入 VRM 模型...\n${label}`);
+      const gltf = await loader.loadAsync(url);
+      const vrm = gltf.userData.vrm;
+
+      VRMUtils.removeUnnecessaryVertices(gltf.scene);
+      VRMUtils.removeUnnecessaryJoints(gltf.scene);
+      VRMUtils.rotateVRM0(vrm);
+
+      disposeCurrentVrm();
+      currentVrm = vrm;
+      currentVrmLabel = label;
+      scene.add(vrm.scene);
+
+      if (lastPoseData) {
+        applyPoseData(lastPoseData);
+        return;
+      }
+
+      const defaultPose = await loadJsonFromUrl('pose.json');
+      setJsonPreview(defaultPose);
+      lastPoseLabel = 'pose.json';
+      applyPoseData(defaultPose);
+    }
+
+    loadRemotePosesEl.addEventListener('click', async () => {
+      try {
+        await loadRemotePoseList();
+      } catch (error) {
+        console.error(error);
+        setStatus(`remote list error:\n${error.message}`);
+      }
+    });
+
+    vrmFileEl.addEventListener('change', async () => {
+      const file = vrmFileEl.files?.[0];
+      if (!file) return;
+
+      try {
+        if (currentVrmObjectUrl) URL.revokeObjectURL(currentVrmObjectUrl);
+        currentVrmObjectUrl = URL.createObjectURL(file);
+        await loadVrm(currentVrmObjectUrl, file.name);
+      } catch (error) {
+        console.error(error);
+        setStatus(`VRM file error:\n${file.name}\n${error.message}`);
+      }
+    });
+
+    loadDefaultVrmEl.addEventListener('click', async () => {
+      try {
+        if (currentVrmObjectUrl) {
+          URL.revokeObjectURL(currentVrmObjectUrl);
+          currentVrmObjectUrl = null;
+        }
+        vrmFileEl.value = '';
+        await loadVrm('charactor.vrm', 'charactor.vrm');
+      } catch (error) {
+        console.error(error);
+        setStatus(`default VRM error:\n${error.message}`);
+      }
+    });
+
+    applyRemotePoseEl.addEventListener('click', async () => {
+      const item = remotePoseItems[Number(remotePoseSelectEl.value)];
+      if (!item) {
+        setStatus('尚未選取線上姿勢。');
+        return;
+      }
+
+      try {
+        await applyRemotePoseItem(item);
+      } catch (error) {
+        console.error(error);
+        setStatus(`remote pose error:\n${item.name}\n${error.message}`);
+      }
+    });
+
+    remotePoseGridEl.addEventListener('click', async event => {
+      const card = event.target.closest('.pose-card');
+      if (!card) return;
+
+      const item = remotePoseItems[Number(card.dataset.poseIndex)];
+      if (!item) return;
+
+      try {
+        await applyRemotePoseItem(item);
+      } catch (error) {
+        console.error(error);
+        setStatus(`remote pose error:\n${item.name}\n${error.message}`);
+      }
+    });
+
+    poseFileEl.addEventListener('change', async () => {
+      const file = poseFileEl.files?.[0];
+      if (!file) return;
+
+      try {
+        const poseData = await loadPoseFile(file);
+        setJsonPreview(poseData);
+        lastPoseLabel = file.name;
+        applyPoseData(poseData);
+      } catch (error) {
+        console.error(error);
+        setStatus(`pose file error:\n${error.message}`);
+      }
+    });
+
+    loadDefaultPoseEl.addEventListener('click', async () => {
+      try {
+        const poseData = await loadJsonFromUrl('pose.json');
+        setJsonPreview(poseData);
+        lastPoseLabel = 'pose.json';
+        applyPoseData(poseData);
+      } catch (error) {
+        console.error(error);
+        setStatus(`default pose error:\n${error.message}`);
+      }
+    });
+
+    resetPoseEl.addEventListener('click', () => {
+      resetCurrentPose();
+      setStatus('姿態已重設。');
+    });
+
+    convertVrm0El.addEventListener('change', () => {
+      if (lastPoseData) applyPoseData(lastPoseData);
+    });
+
+    skipHeadNeckEl.addEventListener('change', () => {
+      if (lastPoseData) applyPoseData(lastPoseData);
+    });
+
+    applyModeEl.addEventListener('change', () => {
+      if (lastPoseData) applyPoseData(lastPoseData);
+    });
+
+    window.addEventListener('resize', resizeRenderer);
+    resizeRenderer();
+
+    const clock = new THREE.Clock();
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      currentVrm?.update?.(delta);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    loadVrm().catch(error => {
+      console.error(error);
+      setStatus(`VRM load error:\n${error.message}`);
+    });
+  </script>
+</body>
+</html>
