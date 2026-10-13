@@ -1,13 +1,17 @@
 import sys
 import os
+# External TLS debugging settings can point to inaccessible files and prevent
+# HTTPS clients from connecting. This application does not export TLS secrets.
+os.environ.pop("SSLKEYLOGFILE", None)
 import json
 import base64
 import ctypes
 import threading
 import time
 from pathlib import Path
-from PySide6.QtCore import Qt, QUrl, QObject, Slot, QEvent, Signal
-from PySide6.QtWidgets import QApplication, QMainWindow, QInputDialog, QMessageBox
+from PySide6.QtCore import Qt, QUrl, QObject, Slot, QEvent, Signal, QThread
+from PySide6.QtWidgets import (QApplication, QMainWindow, QMessageBox, QDialog,
+    QVBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
@@ -67,6 +71,146 @@ def model_display_name(model):
 def model_api_name(model):
     name = getattr(model, "name", str(model))
     return name.removeprefix("models/")
+
+
+def conversation_models(models):
+    return [model for model in models
+            if getattr(model, "name", None)
+            and "generateContent" in (getattr(model, "supported_actions", None) or [])
+            and not any(term in model_api_name(model).lower()
+                        for term in ("image", "tts", "robotics", "computer-use"))]
+
+
+def gemini_error_message(exc, api_key=""):
+    code = getattr(exc, "code", None)
+    detail = str(exc).replace(api_key, "[API Key]") if api_key else str(exc)
+    if code == 400:
+        hint = "請確認 API Key 正確、未失效，以及所在地區支援 Gemini API。"
+    elif code in (401, 403):
+        hint = "API Key 無效或沒有權限，請確認 Gemini API 已啟用及金鑰限制。"
+    elif code == 429:
+        hint = "目前配額不足或請求過多，請檢查配額後再試。"
+    else:
+        hint = "請確認網路、代理伺服器與 API Key，再重新驗證。"
+    return f"{hint}\n\n{detail[:1200]}"
+
+
+class ModelValidationWorker(QThread):
+    validated = Signal(object, object)
+    failed = Signal(str)
+
+    def __init__(self, api_key, parent=None):
+        super().__init__(parent)
+        self.api_key = api_key
+
+    def run(self):
+        client = None
+        try:
+            client = genai.Client(api_key=self.api_key, vertexai=False,
+                                  http_options={"api_version": "v1beta", "timeout": 20000})
+            models = conversation_models(client.models.list())
+            if not models:
+                raise ValueError("API 未回傳支援文字對話的 generateContent 模型。")
+            self.validated.emit(client, models)
+        except Exception as exc:
+            if client is not None:
+                client.close()
+            self.failed.emit(gemini_error_message(exc, self.api_key))
+
+
+class GeminiSetupDialog(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("DesktopMate — Gemini 設定")
+        self.setMinimumWidth(500)
+        self.client = None
+        self.model = None
+        self.worker = None
+        settings = load_settings()
+        self.saved_model = settings.get("model", "")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("驗證 API Key 並選擇模型後，才會顯示桌面角色。"))
+        self.key_input = QLineEdit(settings.get("api_key", ""))
+        self.key_input.setEchoMode(QLineEdit.Password)
+        self.key_input.setPlaceholderText("貼上 Gemini API Key")
+        layout.addWidget(self.key_input)
+        self.validate_button = QPushButton("驗證並取得模型")
+        self.validate_button.clicked.connect(self.validate_key)
+        layout.addWidget(self.validate_button)
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setTextFormat(Qt.PlainText)
+        layout.addWidget(self.status)
+        self.models = QComboBox()
+        self.models.setEnabled(False)
+        layout.addWidget(self.models)
+        self.start_button = QPushButton("啟動桌面角色")
+        self.start_button.setEnabled(False)
+        self.start_button.clicked.connect(self.start_character)
+        layout.addWidget(self.start_button)
+        self.key_input.textChanged.connect(self.invalidate_key)
+
+    def invalidate_key(self):
+        self.start_button.setEnabled(False)
+        self.models.clear()
+        self.models.setEnabled(False)
+        if self.client is not None:
+            self.client.close()
+            self.client = None
+
+    def validate_key(self):
+        if genai is None:
+            self.status.setText("缺少 google-genai 套件，請重新安裝或打包。")
+            return
+        api_key = self.key_input.text().strip()
+        if not api_key:
+            self.status.setText("請先輸入 API Key。")
+            return
+        self.invalidate_key()
+        self.key_input.setEnabled(False)
+        self.validate_button.setEnabled(False)
+        self.status.setText("正在驗證並取得可用模型…")
+        self.worker = ModelValidationWorker(api_key, self)
+        self.worker.validated.connect(self.validation_succeeded)
+        self.worker.failed.connect(self.status.setText)
+        self.worker.finished.connect(self.validation_finished)
+        self.worker.start()
+
+    def validation_succeeded(self, client, models):
+        self.client = client
+        for model in models:
+            self.models.addItem(model_display_name(model), model_api_name(model))
+        saved_index = self.models.findData(self.saved_model)
+        if saved_index >= 0:
+            self.models.setCurrentIndex(saved_index)
+        self.models.setEnabled(True)
+        self.start_button.setEnabled(True)
+        self.status.setText(f"驗證成功，取得 {len(models)} 個文字對話模型。請選擇模型後啟動。")
+
+    def validation_finished(self):
+        self.key_input.setEnabled(True)
+        self.validate_button.setEnabled(True)
+
+    def start_character(self):
+        if self.worker is not None and self.worker.isRunning():
+            return
+        self.model = self.models.currentData()
+        if self.client is None or not self.model:
+            return
+        try:
+            save_settings({"api_key": self.key_input.text().strip(), "model": self.model})
+        except OSError as exc:
+            self.status.setText(f"無法儲存設定：{exc}")
+            return
+        self.accept()
+
+    def reject(self):
+        if self.worker is not None and self.worker.isRunning():
+            self.status.setText("正在驗證，請等待連線完成或逾時後再關閉。")
+            return
+        if self.client is not None:
+            self.client.close()
+        super().reject()
 
 
 def split_ai_response(text):
@@ -256,8 +400,8 @@ class InteractiveAssistant:
             self.host.assistantStatusReady.emit("找不到 promptInjection.txt，先暫停語音互動。")
             return False
 
-        if not self._setup_gemini(parent):
-            self.host.assistantStatusReady.emit("Gemini 尚未設定完成，VRM 仍可手動操作。")
+        if self.client is None or not self.model:
+            self.host.assistantStatusReady.emit("Gemini 尚未驗證完成。")
             return False
 
         try:
@@ -286,45 +430,6 @@ class InteractiveAssistant:
         except OSError as exc:
             print(f"Error reading promptInjection.txt: {exc}")
             return ""
-
-    def _setup_gemini(self, parent):
-        settings = load_settings()
-        saved_api_key = settings.get("api_key", "").strip()
-        if saved_api_key:
-            try:
-                self.client = genai.Client(api_key=saved_api_key)
-                models = list(self.client.models.list())
-                if models:
-                    self.model = model_api_name(models[0])
-                    return True
-            except Exception as exc:
-                print(f"Saved Gemini API key failed: {exc}")
-
-        api_key, ok = QInputDialog.getText(parent, "Gemini API Key", "請輸入 Gemini API Key：")
-        if not ok or not api_key.strip():
-            return False
-
-        try:
-            client = genai.Client(api_key=api_key.strip())
-            models = list(client.models.list())
-        except Exception as exc:
-            QMessageBox.critical(parent, "Gemini 設定失敗", f"無法取得模型清單：\n{exc}")
-            return False
-
-        if not models:
-            QMessageBox.warning(parent, "Gemini 設定失敗", "這個 API Key 目前沒有可用模型。")
-            return False
-
-        labels = [model_display_name(model) for model in models]
-        selected, ok = QInputDialog.getItem(parent, "Gemini 模型選擇器", "選擇模型：", labels, 0, False)
-        if not ok:
-            return False
-
-        index = labels.index(selected)
-        self.client = client
-        self.model = model_api_name(models[index])
-        save_settings({"api_key": api_key.strip()})
-        return True
 
     def _build_prompt(self, question):
         parts = [self.prompt_injection]
@@ -410,7 +515,7 @@ class InteractiveAssistant:
 
 
 class TransparentWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, client, model):
         super().__init__()
         self.pose_index = 0
         self.poses = ["pose.json", "pose1.json", "pose2.json"]
@@ -436,6 +541,8 @@ class TransparentWindow(QMainWindow):
         self.channel.registerObject("vrmHost", self.host_obj)
         self.browser.page().setWebChannel(self.channel)
         self.assistant = InteractiveAssistant(self.host_obj)
+        self.assistant.client = client
+        self.assistant.model = model
         self.assistant_started = False
 
         # 改用對 focusProxy 安裝過濾器，這在某些系統上更有效
@@ -508,8 +615,12 @@ if __name__ == "__main__":
     
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    
-    window = TransparentWindow()
+    app.setQuitOnLastWindowClosed(False)
+    setup_dialog = GeminiSetupDialog()
+    if setup_dialog.exec() != QDialog.Accepted:
+        sys.exit(0)
+    window = TransparentWindow(setup_dialog.client, setup_dialog.model)
     app.aboutToQuit.connect(window.assistant.stop)
     window.show()
+    app.setQuitOnLastWindowClosed(True)
     sys.exit(app.exec())

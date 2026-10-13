@@ -26,3 +26,11 @@ desktop.ini
 # Local secrets
 .env
 *.local
+
+# Generated packages and runtime logs
+build/
+dist/
+*.log
+*.pid
+# Local API credentials
+settings.json

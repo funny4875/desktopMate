@@ -56,3 +56,39 @@ python app.py
 - `docs/`: 包含 GitHub Pages 靜態教學網頁與動態演示素材。
 - `tools/`: 開發過程中使用的錄影與截圖自動化工具。
 - `Implementation_Details.md`: 詳細技術實作報告。
+
+## Gemini 設定與語音聊天
+
+啟動時會先顯示 Gemini 設定視窗。輸入 API Key，按「驗證並取得模型」，
+選擇文字對話模型，再按「啟動桌面角色」。驗證失敗時可修改金鑰並重試，
+VRM 視窗會在驗證成功及模型選擇完成後才顯示。
+
+角色啟動後會自動聽麥克風，以 Google 語音辨識轉成繁體中文文字，
+交給 Gemini 回覆，再顯示文字、朗讀並播放動作。目前沒有文字輸入框。
+網路必須可連線到 Google、Gemini 及載入 3D 函式庫的 unpkg。
+模型清單驗證成功不代表生成配額充足，實際對話仍受帳戶配額與權限限制。
+
+金鑰與模型選擇儲存在 `%APPDATA%\vrm_desktop_helper\settings.json`，
+不包含在原始碼或 Windows 打包檔案中。
+程式會停用外部 `SSLKEYLOGFILE` 偵錯記錄設定，以免無效路徑阻止 HTTPS 連線。
+
+## Windows 執行檔打包
+
+已測試的打包環境為 Windows x64 與 Python 3.12：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm DesktopMate.spec
+```
+
+也可雙擊 `build_exe.bat`。完成後執行 `dist\DesktopMate\DesktopMate.exe`。
+搬移時保留整個 `DesktopMate` 資料夾及 `_internal`，使用者不需要另裝 Python。
+`DesktopMate.spec` 包含 VRM、姿勢、VRMA 與提示詞資源，並排除與 Qt
+不相容的同名 ICU DLL，讓 Qt 使用 Windows 提供的 ICU。
+
+執行啟動流程測試：
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
