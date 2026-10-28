@@ -1,5 +1,11 @@
 # Python VRM Desktop Helper
 
+<img src="desktopmate.png" alt="DesktopMate 角色頭像" width="128">
+
+Windows x64 MSI 安裝程式可從 [Releases](../../releases) 下載；安裝後會建立桌面及開始功能表捷徑。安裝需要系統管理員權限，程式需要 Gemini API 金鑰及網路連線。
+
+維護者建置 MSI：先依下方 Windows 打包步驟產生 `dist/DesktopMate`，安裝 WiX Toolset 4，再執行 `python build_msi.py` 和 `wix build installer.wxs -arch x64 -o DesktopMate.msi`。
+
 這是一個使用 Python (PySide6) + Webview (Three.js/VRM) 實作的 3D 桌面助手。
 功能與原版 Electron 版本相同，但使用 Python 作為後端。
 

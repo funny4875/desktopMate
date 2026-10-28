@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_submodules
 root = Path(SPECPATH)
 data_files = ['index.html', 'charactor.vrm', 'charactor_v1.vrm',
               'pose.json', 'pose1.json', 'pose2.json', 'hi.json',
-              'Double Peace.json', 'promptInjection.txt', 'Angry.vrma', 'Goodbye.vrma']
+              'Double Peace.json', 'promptInjection.txt', 'Angry.vrma', 'Goodbye.vrma', 'desktopmate.ico']
 datas = [(str(root / name), '.') for name in data_files]
 datas.append((str(root / 'VRMA'), 'VRMA'))
 hiddenimports = collect_submodules('pyttsx3.drivers') + collect_submodules('google.genai')
@@ -19,6 +19,6 @@ a.binaries = [entry for entry in a.binaries
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name='DesktopMate',
           debug=False, bootloader_ignore_signals=False, strip=False,
-          upx=False, console=False)
+          upx=False, console=False, icon=str(root / 'desktopmate.ico'))
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name='DesktopMate')
 

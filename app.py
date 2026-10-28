@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QMessageBox, QDialog,
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtGui import QSurfaceFormat
+from PySide6.QtGui import QIcon, QSurfaceFormat
 
 try:
     import speech_recognition as sr
@@ -614,6 +614,8 @@ if __name__ == "__main__":
     QSurfaceFormat.setDefaultFormat(fmt)
     
     app = QApplication(sys.argv)
+    icon_dir = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    app.setWindowIcon(QIcon(str(icon_dir / 'desktopmate.ico')))
     app.setStyle("Fusion")
     app.setQuitOnLastWindowClosed(False)
     setup_dialog = GeminiSetupDialog()
